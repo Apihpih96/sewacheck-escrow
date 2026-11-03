@@ -72,6 +72,8 @@ jobs:
         run: |
           solana-keygen new --no-bip39-passphrase --silent --force
           anchor build
+          anchor keys sync
+          anchor build
 
       - name: Test (local validator)
         if: steps.check.outputs.has_anchor == 'true'
