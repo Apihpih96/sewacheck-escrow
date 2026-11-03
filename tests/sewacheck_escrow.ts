@@ -1,4 +1,4 @@
-import * as anchor from "@coral-xyz/anchor";
+import * as anchor from "@anchor-lang/core";
 
 describe("sewacheck_escrow scaffold", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
