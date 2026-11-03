@@ -11,6 +11,7 @@ on:
 env:
   SOLANA_VERSION: stable
   ANCHOR_VERSION: 0.31.1
+  SBF_TOOLS: v1.58
 
 jobs:
   build-test:
@@ -71,13 +72,15 @@ jobs:
         if: steps.check.outputs.has_anchor == 'true'
         run: |
           solana-keygen new --no-bip39-passphrase --silent --force
-          anchor build
+          # Anchor 0.31.1 pulls Solana 2.1 (cargo 1.79), too old for edition2024 crates.
+          # Newer SBF platform tools ship a newer cargo.
+          anchor build -- --tools-version "$SBF_TOOLS"
           anchor keys sync
-          anchor build
+          anchor build -- --tools-version "$SBF_TOOLS"
 
       - name: Test (local validator)
         if: steps.check.outputs.has_anchor == 'true'
-        run: anchor test
+        run: anchor test --skip-build
 
       - name: Upload program and IDL
         if: steps.check.outputs.has_anchor == 'true'
