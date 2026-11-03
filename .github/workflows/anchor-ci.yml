@@ -77,7 +77,11 @@ jobs:
 
       - name: Test (local validator)
         if: steps.check.outputs.has_anchor == 'true'
-        run: anchor test --skip-build
+        # Anchor 1.x defaults to surfpool; use the stock Solana test validator instead.
+        run: |
+          solana-test-validator --reset --quiet &
+          for i in $(seq 1 30); do solana cluster-version -u localhost && break; sleep 2; done
+          anchor test --skip-build --skip-local-validator
 
       - name: Upload program and IDL
         if: steps.check.outputs.has_anchor == 'true'
