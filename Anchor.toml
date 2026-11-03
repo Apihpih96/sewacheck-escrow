@@ -6,7 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sewacheck_escrow = "11111111111111111111111111111111"
+sewacheck_escrow = "9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ"
+
+[programs.devnet]
+sewacheck_escrow = "9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ"
 
 [provider]
 cluster = "localnet"
