@@ -1,0 +1,88 @@
+name: anchor-ci
+
+# Builds and tests the Anchor program on every push, so the program can be
+# compiled without a laptop. Skips cleanly until Anchor.toml exists.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  SOLANA_VERSION: stable
+  ANCHOR_VERSION: 0.31.1
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Anchor project
+        id: check
+        run: |
+          if [ -f Anchor.toml ]; then echo "has_anchor=true" >> "$GITHUB_OUTPUT";
+          else echo "has_anchor=false" >> "$GITHUB_OUTPUT"; echo "No Anchor.toml yet - skipping build."; fi
+
+      - name: Cache cargo and tools
+        if: steps.check.outputs.has_anchor == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.avm
+            ~/.local/share/solana
+            target
+          key: ${{ runner.os }}-anchor-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-anchor-${{ env.ANCHOR_VERSION }}-
+
+      - name: Install Rust
+        if: steps.check.outputs.has_anchor == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana CLI
+        if: steps.check.outputs.has_anchor == 'true'
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor CLI
+        if: steps.check.outputs.has_anchor == 'true'
+        run: |
+          command -v avm || cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install "$ANCHOR_VERSION" || true
+          avm use "$ANCHOR_VERSION"
+          anchor --version
+
+      - name: Set up Node
+        if: steps.check.outputs.has_anchor == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install JS deps
+        if: steps.check.outputs.has_anchor == 'true' && hashFiles('package.json') != ''
+        run: npm install
+
+      - name: Build
+        if: steps.check.outputs.has_anchor == 'true'
+        run: |
+          solana-keygen new --no-bip39-passphrase --silent --force
+          anchor build
+
+      - name: Test (local validator)
+        if: steps.check.outputs.has_anchor == 'true'
+        run: anchor test
+
+      - name: Upload program and IDL
+        if: steps.check.outputs.has_anchor == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sewacheck-escrow-build
+          path: |
+            target/deploy/*.so
+            target/idl/*.json
+            target/types/*.ts
