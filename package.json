@@ -1,7 +1,11 @@
 {
   "license": "MIT",
   "scripts": {},
-  "dependencies": { "@anchor-lang/core": "^1.2.2" },
+  "dependencies": {
+    "@anchor-lang/core": "^1.2.2",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.98.0"
+  },
   "devDependencies": {
     "@types/chai": "^4.3.0",
     "@types/mocha": "^10.0.0",
