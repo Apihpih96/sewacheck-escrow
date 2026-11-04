@@ -31,7 +31,18 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
   const arbiter = Keypair.generate();
   const termsHash = Array.from({ length: 32 }, (_, i) => i);
 
+  const configPda = PublicKey.findProgramAddressSync(
+    [Buffer.from("config")],
+    program.programId
+  )[0];
+  const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+  const programData = PublicKey.findProgramAddressSync(
+    [program.programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE
+  )[0];
+
   let mint: PublicKey;
+  let wrongMint: PublicKey;
   let tenantToken: PublicKey;
   let outsiderToken: PublicKey;
   let nextLeaseId = 1;
@@ -89,6 +100,7 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
     amount?: number;
     endInSecs?: number;
     claimWindow?: number;
+    mint?: PublicKey;
   } = {}) {
     const id = nextLeaseId++;
     const lease = leasePda(id);
@@ -106,7 +118,8 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
       .accountsStrict({
         landlord: landlord.publicKey,
         tenant: tenant.publicKey,
-        mint,
+        config: configPda,
+        mint: opts.mint ?? mint,
         lease,
         vault,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -177,6 +190,55 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
     ).address;
     await mintTo(connection, payer, mint, tenantToken, payer, 100 * DEPOSIT);
     await mintTo(connection, payer, mint, outsiderToken, payer, DEPOSIT);
+    wrongMint = await createMint(connection, payer, payer.publicKey, null, DECIMALS);
+  });
+
+  const initConfig = (admin: Keypair, usdcMint: PublicKey) =>
+    program.methods
+      .initializeConfig()
+      .accountsStrict({
+        admin: admin.publicKey,
+        config: configPda,
+        programData,
+        usdcMint,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([admin])
+      .rpc();
+
+  const updateConfig = (admin: Keypair, newAdmin: PublicKey, usdcMint: PublicKey) =>
+    program.methods
+      .updateConfig(newAdmin)
+      .accountsStrict({ admin: admin.publicKey, config: configPda, usdcMint })
+      .signers([admin])
+      .rpc();
+
+  // ---------- config / USDC-only ----------
+  it("initialize_config: rejects a signer who is not the upgrade authority", async () => {
+    await expectError(initConfig(outsider, mint), "Unauthorized");
+  });
+
+  it("initialize_config: upgrade authority records admin and the allowed mint", async () => {
+    await initConfig(payer, mint);
+    const cfg: any = await program.account.config.fetch(configPda);
+    assert.ok(cfg.admin.equals(payer.publicKey));
+    assert.ok(cfg.usdcMint.equals(mint));
+  });
+
+  it("create_lease: rejects a mint other than the configured USDC mint", async () => {
+    await expectError(createLease({ mint: wrongMint }), "MintNotAllowed");
+  });
+
+  it("update_config: rejects a non-admin signer", async () => {
+    await expectError(updateConfig(outsider, outsider.publicKey, wrongMint), "Unauthorized");
+  });
+
+  it("update_config: admin switches the allowed mint; old mint is then rejected", async () => {
+    await updateConfig(payer, payer.publicKey, wrongMint);
+    await expectError(createLease(), "MintNotAllowed");
+    await updateConfig(payer, payer.publicKey, mint);
+    const cfg: any = await program.account.config.fetch(configPda);
+    assert.ok(cfg.usdcMint.equals(mint));
   });
 
   // ---------- create_lease ----------

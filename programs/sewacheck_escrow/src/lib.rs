@@ -12,10 +12,37 @@ declare_id!("9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ");
 pub const DEFAULT_CLAIM_WINDOW_SECS: i64 = 14 * 24 * 60 * 60;
 pub const LEASE_SEED: &[u8] = b"lease";
 pub const VAULT_SEED: &[u8] = b"vault";
+pub const CONFIG_SEED: &[u8] = b"config";
+/// BPF upgradeable loader; owns this program's ProgramData account.
+pub const BPF_LOADER_UPGRADEABLE_ID: Pubkey =
+    pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+/// Circle USDC mints (https://developers.circle.com/stablecoins/usdc-contract-addresses).
+/// Reference only: the allowed mint lives in the Config account, set at init.
+pub const USDC_MINT_MAINNET: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+pub const USDC_MINT_DEVNET: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 
 #[program]
 pub mod sewacheck_escrow {
     use super::*;
+
+    /// One-time setup by the program's upgrade authority: records the admin and
+    /// the only mint leases may use (USDC on devnet/mainnet, a test mint locally).
+    pub fn initialize_config(ctx: Context<InitializeConfig>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = ctx.accounts.admin.key();
+        config.usdc_mint = ctx.accounts.usdc_mint.key();
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
+    /// Admin can rotate the admin key or change the allowed mint.
+    /// Existing leases keep the mint they were created with.
+    pub fn update_config(ctx: Context<UpdateConfig>, new_admin: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = new_admin;
+        config.usdc_mint = ctx.accounts.usdc_mint.key();
+        Ok(())
+    }
 
     /// Landlord opens a lease. The tenant pubkey and terms are fixed here.
     pub fn create_lease(
@@ -186,6 +213,49 @@ fn payout_and_close(ctx: &Context<CloseOut>, to_tenant: u64) -> Result<()> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + Config::INIT_SPACE,
+        seeds = [CONFIG_SEED],
+        bump
+    )]
+    pub config: Account<'info, Config>,
+
+    /// This program's ProgramData; only its upgrade authority may initialize Config.
+    #[account(
+        seeds = [crate::ID.as_ref()],
+        bump,
+        seeds::program = BPF_LOADER_UPGRADEABLE_ID,
+        constraint = program_data.upgrade_authority_address == Some(admin.key()) @ EscrowError::Unauthorized
+    )]
+    pub program_data: Account<'info, ProgramData>,
+
+    pub usdc_mint: Account<'info, Mint>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ EscrowError::Unauthorized
+    )]
+    pub config: Account<'info, Config>,
+
+    pub usdc_mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
 #[instruction(lease_id: u64)]
 pub struct CreateLease<'info> {
     #[account(mut)]
@@ -194,7 +264,11 @@ pub struct CreateLease<'info> {
     /// CHECK: only the tenant's pubkey is recorded; the tenant signs later when funding.
     pub tenant: UncheckedAccount<'info>,
 
-    /// Deposit mint (USDC on devnet/mainnet; a test mint locally).
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
+    /// Deposit mint: must be the USDC mint recorded in Config.
+    #[account(address = config.usdc_mint @ EscrowError::MintNotAllowed)]
     pub mint: Account<'info, Mint>,
 
     #[account(
@@ -293,6 +367,16 @@ pub struct CloseOut<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+/// Global settings, PDA `["config"]`.
+#[account]
+#[derive(InitSpace)]
+pub struct Config {
+    pub admin: Pubkey,
+    /// The only mint `create_lease` accepts.
+    pub usdc_mint: Pubkey,
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Lease {
@@ -359,4 +443,6 @@ pub enum EscrowError {
     Overpay,
     #[msg("Arithmetic overflow")]
     MathOverflow,
+    #[msg("Mint is not the allowed USDC mint")]
+    MintNotAllowed,
 }
