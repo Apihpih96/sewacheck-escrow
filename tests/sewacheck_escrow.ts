@@ -18,7 +18,7 @@ const BN = anchor.BN;
 const DECIMALS = 6;
 const DEPOSIT = 3_000_000_000; // 3,000 "USDC" with 6 decimals
 
-describe("sewacheck_escrow: week 1 core escrow", () => {
+describe("sewacheck_escrow", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const connection = provider.connection;
@@ -45,6 +45,7 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
   let wrongMint: PublicKey;
   let tenantToken: PublicKey;
   let outsiderToken: PublicKey;
+  let landlordToken: PublicKey;
   let nextLeaseId = 1;
 
   // ---------- helpers ----------
@@ -100,6 +101,8 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
     amount?: number;
     endInSecs?: number;
     claimWindow?: number;
+    responseWindow?: number;
+    arbiter?: PublicKey;
     mint?: PublicKey;
   } = {}) {
     const id = nextLeaseId++;
@@ -111,9 +114,10 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
         new BN(id),
         new BN(opts.amount ?? DEPOSIT),
         new BN(end),
-        arbiter.publicKey,
+        opts.arbiter ?? arbiter.publicKey,
         termsHash,
-        new BN(opts.claimWindow ?? 0)
+        new BN(opts.claimWindow ?? 0),
+        new BN(opts.responseWindow ?? 0)
       )
       .accountsStrict({
         landlord: landlord.publicKey,
@@ -188,6 +192,9 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
     outsiderToken = (
       await getOrCreateAssociatedTokenAccount(connection, payer, mint, outsider.publicKey)
     ).address;
+    landlordToken = (
+      await getOrCreateAssociatedTokenAccount(connection, payer, mint, landlord.publicKey)
+    ).address;
     await mintTo(connection, payer, mint, tenantToken, payer, 100 * DEPOSIT);
     await mintTo(connection, payer, mint, outsiderToken, payer, DEPOSIT);
     wrongMint = await createMint(connection, payer, payer.publicKey, null, DECIMALS);
@@ -253,6 +260,7 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
     assert.equal(acc.funded.toNumber(), 0);
     assert.equal(acc.leaseEndTs.toNumber(), end);
     assert.equal(acc.claimWindowSecs.toNumber(), 14 * 24 * 3600, "default 14 days when 0 passed");
+    assert.equal(acc.responseWindowSecs.toNumber(), 7 * 24 * 3600, "default 7 days when 0 passed");
     assert.deepEqual(Array.from(acc.termsHash), termsHash);
     assert.property(acc.status, "created");
     const v = await getAccount(connection, vault);
@@ -386,5 +394,397 @@ describe("sewacheck_escrow: week 1 core escrow", () => {
       landlordLamportsBefore + rent,
       "rent back to landlord"
     );
+  });
+  // =====================================================================
+  // Week 2: move-out deductions, disputes, auto_accept, mutual_release
+  // =====================================================================
+  const evidence = Array.from({ length: 32 }, (_, i) => 255 - i);
+  const ZERO32 = Array.from({ length: 32 }, () => 0);
+  const DEDUCTION = 800_000_000; // RM-ish 800 of a 3,000 deposit
+
+  async function waitUntilChainPast(ts: number) {
+    for (let i = 0; i < 90 && (await chainNow()) <= ts + 1; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  /** Fully funded lease whose lease_end_ts has already passed (claim window open). */
+  async function endedLease(opts: { claimWindow?: number; responseWindow?: number; arbiter?: PublicKey } = {}) {
+    const l = await createLease({
+      endInSecs: 3,
+      claimWindow: opts.claimWindow ?? 3600,
+      responseWindow: opts.responseWindow ?? 3600,
+      arbiter: opts.arbiter,
+    });
+    await fund(l.lease, l.vault, DEPOSIT);
+    await waitUntilChainPast(l.end);
+    return l;
+  }
+
+  const propose = (lease: PublicKey, amount = DEDUCTION, hash = evidence, signer = landlord) =>
+    program.methods
+      .proposeDeduction(new BN(amount), hash)
+      .accountsStrict({ landlord: signer.publicKey, lease })
+      .signers([signer])
+      .rpc();
+
+  const disputeIx = (lease: PublicKey, signer = tenant) =>
+    program.methods
+      .dispute()
+      .accountsStrict({ tenant: signer.publicKey, lease })
+      .signers([signer])
+      .rpc();
+
+  function settleAccounts(lease: PublicKey, vault: PublicKey, over: Record<string, PublicKey> = {}) {
+    return {
+      lease,
+      landlord: landlord.publicKey,
+      mint,
+      landlordToken,
+      tenantToken,
+      vault,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      ...over,
+    };
+  }
+
+  const accept = (caller: Keypair, lease: PublicKey, vault: PublicKey, over = {}) =>
+    program.methods
+      .acceptDeduction()
+      .accountsStrict({ caller: caller.publicKey, ...settleAccounts(lease, vault, over) })
+      .signers([caller])
+      .rpc();
+
+  const autoAccept = (caller: Keypair, lease: PublicKey, vault: PublicKey) =>
+    program.methods
+      .autoAccept()
+      .accountsStrict({ caller: caller.publicKey, ...settleAccounts(lease, vault) })
+      .signers([caller])
+      .rpc();
+
+  const resolve = (signer: Keypair, lease: PublicKey, vault: PublicKey, toLandlord: number) =>
+    program.methods
+      .resolveDispute(new BN(toLandlord))
+      .accountsStrict({ arbiter: signer.publicKey, config: configPda, ...settleAccounts(lease, vault) })
+      .signers([signer])
+      .rpc();
+
+  const mutual = (
+    lease: PublicKey,
+    vault: PublicKey,
+    toLandlord: number,
+    l: Keypair = landlord,
+    t: Keypair = tenant
+  ) =>
+    program.methods
+      .mutualRelease(new BN(toLandlord))
+      .accountsStrict({
+        landlord: l.publicKey,
+        tenant: t.publicKey,
+        lease,
+        mint,
+        landlordToken,
+        tenantToken,
+        vault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers(l.publicKey.equals(t.publicKey) ? [l] : [l, t])
+      .rpc();
+
+  /** Snapshot balances so a payout can be checked exactly (amounts and rent). */
+  async function snapshot(lease: PublicKey, vault: PublicKey) {
+    return {
+      landlordTok: await tokenBalance(landlordToken),
+      tenantTok: await tokenBalance(tenantToken),
+      landlordSol: await connection.getBalance(landlord.publicKey),
+      rent: (await connection.getBalance(lease)) + (await connection.getBalance(vault)),
+      vault: await tokenBalance(vault),
+    };
+  }
+
+  async function assertSettled(
+    before: Awaited<ReturnType<typeof snapshot>>,
+    lease: PublicKey,
+    vault: PublicKey,
+    toLandlord: number
+  ) {
+    const landlordGot = (await tokenBalance(landlordToken)) - before.landlordTok;
+    const tenantGot = (await tokenBalance(tenantToken)) - before.tenantTok;
+    assert.equal(landlordGot, toLandlord, "landlord payout");
+    assert.equal(tenantGot, DEPOSIT - toLandlord, "tenant payout");
+    assert.equal(landlordGot + tenantGot, before.vault, "payout == vault, nothing more");
+    assert.isNull(await connection.getAccountInfo(lease), "lease closed");
+    assert.isNull(await connection.getAccountInfo(vault), "vault closed");
+    assert.equal(
+      await connection.getBalance(landlord.publicKey),
+      before.landlordSol + before.rent,
+      "rent back to landlord"
+    );
+  }
+
+  // ---------- create_lease (week 2 additions) ----------
+  it("create_lease: rejects an arbiter who is the landlord or the tenant", async () => {
+    await expectError(createLease({ arbiter: landlord.publicKey }), "ArbiterIsParty");
+    await expectError(createLease({ arbiter: tenant.publicKey }), "ArbiterIsParty");
+  });
+
+  it("create_lease: rejects a negative response window; stores a custom one", async () => {
+    await expectError(createLease({ responseWindow: -1 }), "InvalidResponseWindow");
+    const { lease } = await createLease({ responseWindow: 120, arbiter: PublicKey.default });
+    const acc: any = await program.account.lease.fetch(lease);
+    assert.equal(acc.responseWindowSecs.toNumber(), 120);
+    assert.ok(acc.arbiter.equals(PublicKey.default), "no arbiter allowed");
+  });
+
+  // ---------- propose_deduction ----------
+  it("propose_deduction: rejected while Created (not funded)", async () => {
+    const { lease } = await createLease();
+    await expectError(propose(lease), "InvalidStatus");
+  });
+
+  it("propose_deduction: rejected before lease end", async () => {
+    const { lease, vault } = await createLease();
+    await fund(lease, vault, DEPOSIT);
+    await expectError(propose(lease), "LeaseNotEnded");
+  });
+
+  it("propose_deduction: rejects non-landlord, zero amount, over-funded amount, missing evidence", async () => {
+    const { lease } = await endedLease();
+    await expectError(propose(lease, DEDUCTION, evidence, tenant), "Unauthorized");
+    await expectError(propose(lease, DEDUCTION, evidence, outsider), "Unauthorized");
+    await expectError(propose(lease, 0), "InvalidAmount");
+    await expectError(propose(lease, DEPOSIT + 1), "DeductionTooLarge");
+    await expectError(propose(lease, DEDUCTION, ZERO32), "MissingEvidence");
+    const acc: any = await program.account.lease.fetch(lease);
+    assert.property(acc.status, "active", "nothing changed");
+  });
+
+  it("propose_deduction: rejected after the claim window closes", async () => {
+    const { lease, end } = await endedLease({ claimWindow: 2 });
+    await waitUntilChainPast(end + 2);
+    await expectError(propose(lease), "ClaimWindowClosed");
+  });
+
+  it("propose_deduction: records claim + evidence; vault untouched; second claim rejected", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    const acc: any = await program.account.lease.fetch(lease);
+    assert.property(acc.status, "deductionProposed");
+    assert.equal(acc.deduction.toNumber(), DEDUCTION);
+    assert.deepEqual(Array.from(acc.evidenceHash), evidence);
+    assert.isAbove(acc.proposedTs.toNumber(), 0);
+    assert.equal(await tokenBalance(vault), DEPOSIT, "vault == funded until settled");
+    await expectError(propose(lease, 1), "InvalidStatus");
+  });
+
+  it("propose_deduction: full deposit can be claimed (deduction == funded)", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease, DEPOSIT);
+    const before = await snapshot(lease, vault);
+    await accept(tenant, lease, vault);
+    await assertSettled(before, lease, vault, DEPOSIT);
+  });
+
+  // ---------- auto_refund still only when no claim ----------
+  it("auto_refund: rejected once a claim exists, even after the claim window", async () => {
+    const { lease, vault, end } = await endedLease({ claimWindow: 4 });
+    await propose(lease);
+    await waitUntilChainPast(end + 4);
+    await expectError(autoRefund(outsider, lease, vault), "InvalidStatus");
+    assert.equal(await tokenBalance(vault), DEPOSIT);
+  });
+
+  // ---------- accept_deduction ----------
+  it("accept_deduction: only the tenant can accept", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await expectError(accept(landlord, lease, vault), "Unauthorized");
+    await expectError(accept(outsider, lease, vault), "Unauthorized");
+  });
+
+  it("accept_deduction: rejected without a proposal", async () => {
+    const { lease, vault } = await endedLease();
+    await expectError(accept(tenant, lease, vault), "InvalidStatus");
+  });
+
+  it("accept_deduction: deduction to landlord, rest to tenant, vault + lease closed", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    const before = await snapshot(lease, vault);
+    await accept(tenant, lease, vault);
+    await assertSettled(before, lease, vault, DEDUCTION);
+  });
+
+  it("payout accounts: funds can only go to the lease's landlord and tenant", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await expectError(accept(tenant, lease, vault, { landlordToken: outsiderToken }), "WrongTokenOwner");
+    await expectError(accept(tenant, lease, vault, { tenantToken: outsiderToken }), "WrongTokenOwner");
+    await expectError(accept(tenant, lease, vault, { landlord: outsider.publicKey }), "WrongLandlord");
+    // A different lease's vault does not match this lease's vault PDA.
+    const other = await createLease();
+    await expectError(accept(tenant, lease, other.vault), "ConstraintSeeds");
+    assert.equal(await tokenBalance(vault), DEPOSIT, "nothing moved");
+  });
+
+  // ---------- dispute ----------
+  it("dispute: only the tenant, only on a pending claim", async () => {
+    const { lease } = await endedLease();
+    await expectError(disputeIx(lease), "InvalidStatus");
+    await propose(lease);
+    await expectError(disputeIx(lease, landlord), "Unauthorized");
+    await expectError(disputeIx(lease, outsider), "Unauthorized");
+    await disputeIx(lease);
+    const acc: any = await program.account.lease.fetch(lease);
+    assert.property(acc.status, "disputed");
+    await expectError(disputeIx(lease), "InvalidStatus");
+  });
+
+  it("dispute: rejected after the response window", async () => {
+    const { lease } = await endedLease({ responseWindow: 2 });
+    await propose(lease);
+    const acc: any = await program.account.lease.fetch(lease);
+    await waitUntilChainPast(acc.proposedTs.toNumber() + 2);
+    await expectError(disputeIx(lease), "ResponseWindowClosed");
+  });
+
+  it("disputed lease: accept_deduction, auto_accept and auto_refund are all blocked", async () => {
+    const { lease, vault } = await endedLease({ responseWindow: 2 });
+    await propose(lease);
+    await disputeIx(lease);
+    const acc: any = await program.account.lease.fetch(lease);
+    await waitUntilChainPast(acc.proposedTs.toNumber() + 2);
+    await expectError(accept(tenant, lease, vault), "InvalidStatus");
+    await expectError(autoAccept(outsider, lease, vault), "InvalidStatus");
+    await expectError(autoRefund(outsider, lease, vault), "InvalidStatus");
+    assert.equal(await tokenBalance(vault), DEPOSIT);
+  });
+
+  // ---------- resolve_dispute ----------
+  it("resolve_dispute: arbiter cannot act unless the lease is Disputed", async () => {
+    const { lease, vault } = await endedLease();
+    await expectError(resolve(arbiter, lease, vault, 0), "InvalidStatus");
+    await propose(lease);
+    await expectError(resolve(arbiter, lease, vault, 0), "InvalidStatus");
+  });
+
+  it("resolve_dispute: rejects landlord, tenant, outsider and config admin when an arbiter is named", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await disputeIx(lease);
+    await expectError(resolve(landlord, lease, vault, DEDUCTION), "Unauthorized");
+    await expectError(resolve(tenant, lease, vault, 0), "Unauthorized");
+    await expectError(resolve(outsider, lease, vault, 0), "Unauthorized");
+    await expectError(resolve(payer, lease, vault, 0), "Unauthorized");
+  });
+
+  it("resolve_dispute: ruling is capped at the claimed deduction", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await disputeIx(lease);
+    await expectError(resolve(arbiter, lease, vault, DEDUCTION + 1), "ExceedsClaim");
+  });
+
+  it("resolve_dispute: arbiter splits within the claim; vault + lease closed", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await disputeIx(lease);
+    const before = await snapshot(lease, vault);
+    const ruling = 300_000_000;
+    await resolve(arbiter, lease, vault, ruling);
+    await assertSettled(before, lease, vault, ruling);
+  });
+
+  it("resolve_dispute: arbiter can rule 0 (tenant gets everything)", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await disputeIx(lease);
+    const before = await snapshot(lease, vault);
+    await resolve(arbiter, lease, vault, 0);
+    await assertSettled(before, lease, vault, 0);
+  });
+
+  it("resolve_dispute: with no named arbiter, the config admin is the fallback arbiter", async () => {
+    const { lease, vault } = await endedLease({ arbiter: PublicKey.default });
+    await propose(lease);
+    await disputeIx(lease);
+    await expectError(resolve(arbiter, lease, vault, 0), "Unauthorized");
+    await expectError(resolve(payer, lease, vault, DEDUCTION + 1), "ExceedsClaim");
+    const before = await snapshot(lease, vault);
+    await resolve(payer, lease, vault, DEDUCTION);
+    await assertSettled(before, lease, vault, DEDUCTION);
+  });
+
+  // ---------- auto_accept ----------
+  it("auto_accept: rejected while the response window is open, and without a claim", async () => {
+    const { lease, vault } = await endedLease();
+    await expectError(autoAccept(outsider, lease, vault), "InvalidStatus");
+    await propose(lease);
+    await expectError(autoAccept(outsider, lease, vault), "DeadlineNotReached");
+  });
+
+  it("auto_accept: tenant silence = acceptance; anyone can crank", async () => {
+    const { lease, vault } = await endedLease({ responseWindow: 2 });
+    await propose(lease);
+    const acc: any = await program.account.lease.fetch(lease);
+    await waitUntilChainPast(acc.proposedTs.toNumber() + 2);
+    const before = await snapshot(lease, vault);
+    await autoAccept(outsider, lease, vault);
+    await assertSettled(before, lease, vault, DEDUCTION);
+  });
+
+  // ---------- mutual_release ----------
+  it("mutual_release: rejected while Created", async () => {
+    const { lease, vault } = await createLease();
+    await fund(lease, vault, 1_000);
+    await expectError(mutual(lease, vault, 0), "InvalidStatus");
+  });
+
+  it("mutual_release: needs both landlord and tenant signatures", async () => {
+    const { lease, vault } = await createLease();
+    await fund(lease, vault, DEPOSIT);
+    await expectError(mutual(lease, vault, 0, landlord, outsider), "Unauthorized");
+    await expectError(mutual(lease, vault, 0, outsider, tenant), "Unauthorized");
+    // Landlord alone cannot fake the tenant: the tenant account must sign.
+    const tx = program.methods
+      .mutualRelease(new BN(0))
+      .accountsStrict({
+        landlord: landlord.publicKey,
+        tenant: tenant.publicKey,
+        lease,
+        mint,
+        landlordToken,
+        tenantToken,
+        vault,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([landlord])
+      .rpc();
+    await expectError(tx, "ignature");
+  });
+
+  it("mutual_release: rejects a split above the funded amount", async () => {
+    const { lease, vault } = await createLease();
+    await fund(lease, vault, DEPOSIT);
+    await expectError(mutual(lease, vault, DEPOSIT + 1), "Overpay");
+  });
+
+  it("mutual_release: early exit from Active with an agreed split (before lease end)", async () => {
+    const { lease, vault } = await createLease();
+    await fund(lease, vault, DEPOSIT);
+    const before = await snapshot(lease, vault);
+    const split = 1_000_000_000;
+    // The provider wallet pays the tx fee, so the landlord's SOL rises by exactly the rent.
+    await mutual(lease, vault, split);
+    await assertSettled(before, lease, vault, split);
+  });
+
+  it("mutual_release: settles a dispute without the arbiter", async () => {
+    const { lease, vault } = await endedLease();
+    await propose(lease);
+    await disputeIx(lease);
+    const before = await snapshot(lease, vault);
+    await mutual(lease, vault, 400_000_000);
+    await assertSettled(before, lease, vault, 400_000_000);
   });
 });
