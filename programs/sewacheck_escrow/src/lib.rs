@@ -2,11 +2,12 @@
 //!
 //! Week 1 (SPEC.md section 10): create_lease, fund_deposit, cancel_lease, auto_refund.
 //! Week 2: move-out deductions and disputes: propose_deduction, accept_deduction,
-//! dispute, resolve_dispute, auto_accept, mutual_release.
+//! dispute, resolve_dispute, auto_accept, mutual_release, arbiter_timeout.
 //!
-//! Invariants: every payout is exactly the vault balance split between the lease's
-//! landlord and tenant token accounts (never more than funded, never anyone else),
-//! and every terminal path closes both the vault and the Lease (rent to landlord).
+//! Invariants: every payout empties the vault into the lease's landlord and tenant
+//! token accounts only (the landlord never gets more than funded or than a ruling/claim
+//! allows; any tokens donated to the vault on top of `funded` go to the tenant), and
+//! every terminal path closes both the vault and the Lease (rent to landlord).
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, TransferChecked};
 
@@ -16,6 +17,9 @@ declare_id!("9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ");
 pub const DEFAULT_CLAIM_WINDOW_SECS: i64 = 14 * 24 * 60 * 60;
 /// Default tenant response window (dispute or silence = acceptance) when 0 is passed: 7 days.
 pub const DEFAULT_RESPONSE_WINDOW_SECS: i64 = 7 * 24 * 60 * 60;
+/// Default arbiter window (time to rule on a dispute) when 0 is passed: 14 days.
+/// After it, anyone can crank `arbiter_timeout` and the tenant gets the whole deposit.
+pub const DEFAULT_ARBITER_WINDOW_SECS: i64 = 14 * 24 * 60 * 60;
 pub const LEASE_SEED: &[u8] = b"lease";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const CONFIG_SEED: &[u8] = b"config";
@@ -44,6 +48,8 @@ pub mod sewacheck_escrow {
     /// Admin can rotate the admin key or change the allowed mint.
     /// Existing leases keep the mint they were created with.
     pub fn update_config(ctx: Context<UpdateConfig>, new_admin: Pubkey) -> Result<()> {
+        // The default pubkey has no private key: setting it would brick Config for good.
+        require_keys_neq!(new_admin, Pubkey::default(), EscrowError::InvalidAdmin);
         let config = &mut ctx.accounts.config;
         config.admin = new_admin;
         config.usdc_mint = ctx.accounts.usdc_mint.key();
@@ -60,10 +66,12 @@ pub mod sewacheck_escrow {
         terms_hash: [u8; 32],
         claim_window_secs: i64,
         response_window_secs: i64,
+        arbiter_window_secs: i64,
     ) -> Result<()> {
         require!(amount > 0, EscrowError::InvalidAmount);
         require!(claim_window_secs >= 0, EscrowError::InvalidClaimWindow);
         require!(response_window_secs >= 0, EscrowError::InvalidResponseWindow);
+        require!(arbiter_window_secs >= 0, EscrowError::InvalidArbiterWindow);
         let now = Clock::get()?.unix_timestamp;
         require!(lease_end_ts > now, EscrowError::LeaseEndInPast);
         let landlord = ctx.accounts.landlord.key();
@@ -85,11 +93,18 @@ pub mod sewacheck_escrow {
         } else {
             response_window_secs
         };
-        // Make sure the deadline arithmetic can never overflow later
-        // (latest proposal is at end + claim window; its response deadline adds the response window).
+        let arbiter_window = if arbiter_window_secs == 0 {
+            DEFAULT_ARBITER_WINDOW_SECS
+        } else {
+            arbiter_window_secs
+        };
+        // Make sure the deadline arithmetic can never overflow later: the latest proposal is
+        // at end + claim window, the latest dispute adds the response window, and the
+        // arbiter deadline adds the arbiter window.
         lease_end_ts
             .checked_add(claim_window)
             .and_then(|t| t.checked_add(response_window))
+            .and_then(|t| t.checked_add(arbiter_window))
             .ok_or(EscrowError::MathOverflow)?;
 
         let lease = &mut ctx.accounts.lease;
@@ -103,11 +118,13 @@ pub mod sewacheck_escrow {
         lease.lease_end_ts = lease_end_ts;
         lease.claim_window_secs = claim_window;
         lease.response_window_secs = response_window;
+        lease.arbiter_window_secs = arbiter_window;
         lease.terms_hash = terms_hash;
         lease.status = LeaseStatus::Created;
         lease.deduction = 0;
         lease.evidence_hash = [0u8; 32];
         lease.proposed_ts = 0;
+        lease.disputed_ts = 0;
         lease.bump = ctx.bumps.lease;
         lease.vault_bump = ctx.bumps.vault;
         Ok(())
@@ -156,8 +173,7 @@ pub mod sewacheck_escrow {
             EscrowError::Unauthorized
         );
         require!(lease.status == LeaseStatus::Created, EscrowError::InvalidStatus);
-        let funded = lease.funded;
-        payout_and_close(&ctx, funded)?;
+        payout_and_close(&ctx)?;
         ctx.accounts.lease.funded = 0;
         ctx.accounts.lease.status = LeaseStatus::Cancelled;
         Ok(())
@@ -174,8 +190,7 @@ pub mod sewacheck_escrow {
             .ok_or(EscrowError::MathOverflow)?;
         let now = Clock::get()?.unix_timestamp;
         require!(now > deadline, EscrowError::DeadlineNotReached);
-        let funded = lease.funded;
-        payout_and_close(&ctx, funded)?;
+        payout_and_close(&ctx)?;
         ctx.accounts.lease.funded = 0;
         ctx.accounts.lease.status = LeaseStatus::Settled;
         Ok(())
@@ -234,13 +249,17 @@ pub mod sewacheck_escrow {
             .ok_or(EscrowError::MathOverflow)?;
         let now = Clock::get()?.unix_timestamp;
         require!(now <= response_deadline, EscrowError::ResponseWindowClosed);
-        ctx.accounts.lease.status = LeaseStatus::Disputed;
+        let lease = &mut ctx.accounts.lease;
+        lease.status = LeaseStatus::Disputed;
+        lease.disputed_ts = now;
         Ok(())
     }
 
     /// Arbiter rules on a dispute: `to_landlord` (capped at the claimed deduction) to the
     /// landlord, the rest to the tenant. If the lease has no arbiter, the Config admin
     /// is the fallback arbiter (same cap, funds still only to landlord/tenant).
+    /// Must rule within `arbiter_window_secs` of the dispute; after that only
+    /// `arbiter_timeout` (or `mutual_release`) can settle the lease.
     pub fn resolve_dispute(ctx: Context<ResolveDispute>, to_landlord: u64) -> Result<()> {
         let lease = &ctx.accounts.lease;
         let expected = if lease.arbiter == Pubkey::default() {
@@ -249,7 +268,20 @@ pub mod sewacheck_escrow {
             lease.arbiter
         };
         require_keys_eq!(ctx.accounts.arbiter.key(), expected, EscrowError::Unauthorized);
+        // A party can never rule on its own dispute. create_lease already blocks a named
+        // arbiter who is a party; this also covers the Config-admin fallback (e.g. the
+        // deployer/admin key acting as a landlord).
+        require!(
+            expected != lease.landlord && expected != lease.tenant,
+            EscrowError::ArbiterIsParty
+        );
         require!(lease.status == LeaseStatus::Disputed, EscrowError::InvalidStatus);
+        let arbiter_deadline = lease
+            .disputed_ts
+            .checked_add(lease.arbiter_window_secs)
+            .ok_or(EscrowError::MathOverflow)?;
+        let now = Clock::get()?.unix_timestamp;
+        require!(now <= arbiter_deadline, EscrowError::ArbiterWindowClosed);
         require!(to_landlord <= lease.deduction, EscrowError::ExceedsClaim);
         let a = &ctx.accounts;
         split_and_close(
@@ -284,6 +316,26 @@ pub mod sewacheck_escrow {
         require!(now > response_deadline, EscrowError::DeadlineNotReached);
         let to_landlord = lease.deduction;
         ctx.accounts.pay_out_and_close(to_landlord)
+    }
+
+    /// Anyone can crank: the lease is Disputed and the arbiter (named, or the Config admin
+    /// fallback) did not rule within the arbiter window. The landlord's claim was never
+    /// upheld, so the tenant gets the whole vault (the undisputed share and the unruled
+    /// disputed amount). Vault and lease rent go to the landlord.
+    pub fn arbiter_timeout(ctx: Context<CloseOut>) -> Result<()> {
+        let lease = &ctx.accounts.lease;
+        require!(lease.status == LeaseStatus::Disputed, EscrowError::InvalidStatus);
+        let arbiter_deadline = lease
+            .disputed_ts
+            .checked_add(lease.arbiter_window_secs)
+            .ok_or(EscrowError::MathOverflow)?;
+        let now = Clock::get()?.unix_timestamp;
+        require!(now > arbiter_deadline, EscrowError::DeadlineNotReached);
+        payout_and_close(&ctx)?;
+        let lease = &mut ctx.accounts.lease;
+        lease.funded = 0;
+        lease.status = LeaseStatus::Settled;
+        Ok(())
     }
 
     /// Landlord and tenant both sign one transaction for an agreed split.
@@ -334,9 +386,11 @@ impl<'info> Settle<'info> {
     }
 }
 
-/// Splits the whole vault: `to_landlord` to the landlord's token account, the rest to the
-/// tenant's, then closes the vault (rent to the landlord). Callers close the Lease via
-/// the `close = landlord` constraint. Refuses if the vault doesn't hold exactly `funded`.
+/// Splits the whole vault: `to_landlord` (<= funded) to the landlord's token account, the
+/// rest to the tenant's, then closes the vault (rent to the landlord). Callers close the
+/// Lease via the `close = landlord` constraint. Anyone can send tokens straight to the vault,
+/// so the vault may hold more than `funded`: that surplus goes to the tenant instead of
+/// blocking the payout (requiring vault == funded let a 1-unit donation freeze the deposit).
 #[allow(clippy::too_many_arguments)]
 fn split_and_close<'info>(
     lease: &Account<'info, Lease>,
@@ -348,10 +402,10 @@ fn split_and_close<'info>(
     token_program: Pubkey,
     to_landlord: u64,
 ) -> Result<()> {
-    require!(vault.amount == lease.funded, EscrowError::VaultMismatch);
+    require!(vault.amount >= lease.funded, EscrowError::VaultMismatch);
     require!(to_landlord <= lease.funded, EscrowError::Overpay);
-    let to_tenant = lease
-        .funded
+    let to_tenant = vault
+        .amount
         .checked_sub(to_landlord)
         .ok_or(EscrowError::MathOverflow)?;
 
@@ -400,15 +454,16 @@ fn split_and_close<'info>(
     Ok(())
 }
 
-/// Pays `to_tenant` from the vault to the tenant, then closes the vault (rent to landlord).
-/// The Lease account itself is closed to the landlord by the `close` constraint.
-fn payout_and_close(ctx: &Context<CloseOut>, to_tenant: u64) -> Result<()> {
+/// Pays the whole vault (funded plus any donated surplus) to the tenant, then closes the
+/// vault (rent to landlord). The Lease account itself is closed to the landlord by the
+/// `close` constraint.
+fn payout_and_close(ctx: &Context<CloseOut>) -> Result<()> {
     let lease = &ctx.accounts.lease;
     require!(
-        ctx.accounts.vault.amount == lease.funded,
+        ctx.accounts.vault.amount >= lease.funded,
         EscrowError::VaultMismatch
     );
-    require!(to_tenant <= lease.funded, EscrowError::Overpay);
+    let to_tenant = ctx.accounts.vault.amount;
 
     let lease_id_bytes = lease.lease_id.to_le_bytes();
     let bump = [lease.bump];
@@ -570,7 +625,7 @@ pub struct FundDeposit<'info> {
 /// Shared accounts for every instruction that pays out and closes the lease.
 #[derive(Accounts)]
 pub struct CloseOut<'info> {
-    /// Landlord or tenant for cancel_lease; anyone for auto_refund.
+    /// Landlord or tenant for cancel_lease; anyone for auto_refund and arbiter_timeout.
     pub caller: Signer<'info>,
 
     #[account(
@@ -796,12 +851,16 @@ pub struct Lease {
     pub claim_window_secs: i64,
     /// Time the tenant has after a proposal to dispute; after it, anyone can auto_accept.
     pub response_window_secs: i64,
+    /// Time the arbiter has after a dispute to rule; after it, anyone can arbiter_timeout.
+    pub arbiter_window_secs: i64,
     /// SHA-256 of the signed agreement PDF (from SewaCheck).
     pub terms_hash: [u8; 32],
     pub status: LeaseStatus,
     pub deduction: u64,
     pub evidence_hash: [u8; 32],
     pub proposed_ts: i64,
+    /// When the tenant disputed (0 until then); start of the arbiter window.
+    pub disputed_ts: i64,
     pub bump: u8,
     pub vault_bump: u8,
 }
@@ -866,4 +925,10 @@ pub enum EscrowError {
     ResponseWindowClosed,
     #[msg("Ruling exceeds the claimed deduction")]
     ExceedsClaim,
+    #[msg("Arbiter window must not be negative")]
+    InvalidArbiterWindow,
+    #[msg("Arbiter window has closed")]
+    ArbiterWindowClosed,
+    #[msg("Admin must not be the default pubkey")]
+    InvalidAdmin,
 }

@@ -15,6 +15,10 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+# cfg names emitted by Anchor/Solana macros; declaring them silences the unexpected_cfgs warnings.
+anchor-debug = []
+custom-heap = []
+custom-panic = []
 
 [dependencies]
 anchor-lang = "1.2.2"
