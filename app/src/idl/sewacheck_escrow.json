@@ -1,0 +1,1629 @@
+{
+  "address": "9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ",
+  "metadata": {
+    "name": "sewacheck_escrow",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SewaCheck rental deposit escrow"
+  },
+  "instructions": [
+    {
+      "name": "accept_deduction",
+      "docs": [
+        "Tenant accepts the claim: deduction to the landlord, the rest to the tenant."
+      ],
+      "discriminator": [
+        75,
+        130,
+        220,
+        51,
+        114,
+        56,
+        225,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Tenant for accept_deduction; anyone for auto_accept; arbiter checks live in ResolveDispute."
+          ],
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "landlord_token",
+          "writable": true
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "arbiter_timeout",
+      "docs": [
+        "Anyone can crank: the lease is Disputed and the arbiter (named, or the Config admin",
+        "fallback) did not rule within the arbiter window. The landlord's claim was never",
+        "upheld, so the tenant gets the whole vault (the undisputed share and the unruled",
+        "disputed amount). Vault and lease rent go to the landlord."
+      ],
+      "discriminator": [
+        179,
+        196,
+        209,
+        208,
+        44,
+        149,
+        225,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Landlord or tenant for cancel_lease; anyone for auto_refund and arbiter_timeout."
+          ],
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "auto_accept",
+      "docs": [
+        "Anyone can crank: the tenant did not dispute within the response window,",
+        "so silence = acceptance."
+      ],
+      "discriminator": [
+        41,
+        127,
+        245,
+        148,
+        80,
+        208,
+        24,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Tenant for accept_deduction; anyone for auto_accept; arbiter checks live in ResolveDispute."
+          ],
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "landlord_token",
+          "writable": true
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "auto_refund",
+      "docs": [
+        "Anyone can crank: once the claim window has passed with no claim, the tenant gets 100%."
+      ],
+      "discriminator": [
+        64,
+        219,
+        182,
+        3,
+        234,
+        13,
+        10,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Landlord or tenant for cancel_lease; anyone for auto_refund and arbiter_timeout."
+          ],
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_lease",
+      "docs": [
+        "Landlord or tenant cancels before the deposit is fully funded.",
+        "Any partial funding goes back to the tenant; vault and lease rent go to the landlord."
+      ],
+      "discriminator": [
+        227,
+        48,
+        240,
+        188,
+        20,
+        185,
+        173,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Landlord or tenant for cancel_lease; anyone for auto_refund and arbiter_timeout."
+          ],
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_lease",
+      "docs": [
+        "Landlord opens a lease. The tenant pubkey and terms are fixed here."
+      ],
+      "discriminator": [
+        158,
+        42,
+        229,
+        17,
+        202,
+        87,
+        68,
+        148
+      ],
+      "accounts": [
+        {
+          "name": "landlord",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tenant"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "Deposit mint: must be the USDC mint recorded in Config."
+          ]
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "landlord"
+              },
+              {
+                "kind": "account",
+                "path": "tenant"
+              },
+              {
+                "kind": "arg",
+                "path": "lease_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "lease_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "lease_end_ts",
+          "type": "i64"
+        },
+        {
+          "name": "arbiter",
+          "type": "pubkey"
+        },
+        {
+          "name": "terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_window_secs",
+          "type": "i64"
+        },
+        {
+          "name": "response_window_secs",
+          "type": "i64"
+        },
+        {
+          "name": "arbiter_window_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "dispute",
+      "docs": [
+        "Tenant disputes the claim within the response window. Funds stay in the vault."
+      ],
+      "discriminator": [
+        216,
+        92,
+        128,
+        146,
+        202,
+        85,
+        135,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "tenant",
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "fund_deposit",
+      "docs": [
+        "Tenant funds the deposit, fully or in parts. Created -> Active when funded == amount."
+      ],
+      "discriminator": [
+        149,
+        24,
+        209,
+        94,
+        206,
+        202,
+        144,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "tenant",
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "One-time setup by the program's upgrade authority: records the admin and",
+        "the only mint leases may use (USDC on devnet/mainnet, a test mint locally)."
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData; only its upgrade authority may initialize Config."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  126,
+                  3,
+                  14,
+                  90,
+                  8,
+                  139,
+                  252,
+                  51,
+                  236,
+                  208,
+                  233,
+                  44,
+                  66,
+                  139,
+                  198,
+                  46,
+                  218,
+                  82,
+                  25,
+                  151,
+                  105,
+                  115,
+                  93,
+                  170,
+                  27,
+                  42,
+                  97,
+                  182,
+                  156,
+                  96,
+                  214,
+                  1
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "mutual_release",
+      "docs": [
+        "Landlord and tenant both sign one transaction for an agreed split.",
+        "Allowed once funded (Active), and also to settle a pending claim or dispute."
+      ],
+      "discriminator": [
+        79,
+        102,
+        113,
+        234,
+        201,
+        225,
+        145,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "landlord",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tenant",
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "landlord_token",
+          "writable": true
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "to_landlord",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "propose_deduction",
+      "docs": [
+        "Landlord claims a move-out deduction with an evidence hash (photos/invoices on",
+        "Arweave/IPFS). Only after lease end and up to lease end + claim window."
+      ],
+      "discriminator": [
+        26,
+        240,
+        207,
+        215,
+        210,
+        178,
+        27,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "landlord",
+          "signer": true
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "deduction",
+          "type": "u64"
+        },
+        {
+          "name": "evidence_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "resolve_dispute",
+      "docs": [
+        "Arbiter rules on a dispute: `to_landlord` (capped at the claimed deduction) to the",
+        "landlord, the rest to the tenant. If the lease has no arbiter, the Config admin",
+        "is the fallback arbiter (same cap, funds still only to landlord/tenant).",
+        "Must rule within `arbiter_window_secs` of the dispute; after that only",
+        "`arbiter_timeout` (or `mutual_release`) can settle the lease."
+      ],
+      "discriminator": [
+        231,
+        6,
+        202,
+        6,
+        96,
+        103,
+        12,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "arbiter",
+          "docs": [
+            "The lease's arbiter, or the Config admin when the lease has none."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "lease",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease.landlord",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.tenant",
+                "account": "Lease"
+              },
+              {
+                "kind": "account",
+                "path": "lease.lease_id",
+                "account": "Lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "landlord",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "landlord_token",
+          "writable": true
+        },
+        {
+          "name": "tenant_token",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "lease"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "to_landlord",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "docs": [
+        "Admin can rotate the admin key or change the allowed mint.",
+        "Existing leases keep the mint they were created with."
+      ],
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Lease",
+      "discriminator": [
+        14,
+        103,
+        218,
+        61,
+        248,
+        234,
+        105,
+        84
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6001,
+      "name": "LeaseEndInPast",
+      "msg": "Lease end must be in the future"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidClaimWindow",
+      "msg": "Claim window must not be negative"
+    },
+    {
+      "code": 6003,
+      "name": "SameParty",
+      "msg": "Landlord and tenant must be different wallets"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidStatus",
+      "msg": "Lease is not in the required status for this action"
+    },
+    {
+      "code": 6005,
+      "name": "Overfund",
+      "msg": "Funding would exceed the required deposit"
+    },
+    {
+      "code": 6006,
+      "name": "Unauthorized",
+      "msg": "Signer is not allowed to perform this action"
+    },
+    {
+      "code": 6007,
+      "name": "DeadlineNotReached",
+      "msg": "Claim window has not ended yet"
+    },
+    {
+      "code": 6008,
+      "name": "ClaimExists",
+      "msg": "A deduction claim exists on this lease"
+    },
+    {
+      "code": 6009,
+      "name": "WrongMint",
+      "msg": "Mint does not match the lease mint"
+    },
+    {
+      "code": 6010,
+      "name": "WrongTokenOwner",
+      "msg": "Token account is not owned by the expected wallet"
+    },
+    {
+      "code": 6011,
+      "name": "WrongLandlord",
+      "msg": "Landlord account does not match the lease"
+    },
+    {
+      "code": 6012,
+      "name": "VaultMismatch",
+      "msg": "Vault balance does not match the funded amount"
+    },
+    {
+      "code": 6013,
+      "name": "Overpay",
+      "msg": "Payout would exceed the funded amount"
+    },
+    {
+      "code": 6014,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6015,
+      "name": "MintNotAllowed",
+      "msg": "Mint is not the allowed USDC mint"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidResponseWindow",
+      "msg": "Response window must not be negative"
+    },
+    {
+      "code": 6017,
+      "name": "ArbiterIsParty",
+      "msg": "Arbiter must not be the landlord or the tenant"
+    },
+    {
+      "code": 6018,
+      "name": "DeductionTooLarge",
+      "msg": "Deduction exceeds the funded deposit"
+    },
+    {
+      "code": 6019,
+      "name": "MissingEvidence",
+      "msg": "Evidence hash is required"
+    },
+    {
+      "code": 6020,
+      "name": "LeaseNotEnded",
+      "msg": "Lease has not ended yet"
+    },
+    {
+      "code": 6021,
+      "name": "ClaimWindowClosed",
+      "msg": "Claim window has closed"
+    },
+    {
+      "code": 6022,
+      "name": "ResponseWindowClosed",
+      "msg": "Response window has closed"
+    },
+    {
+      "code": 6023,
+      "name": "ExceedsClaim",
+      "msg": "Ruling exceeds the claimed deduction"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidArbiterWindow",
+      "msg": "Arbiter window must not be negative"
+    },
+    {
+      "code": 6025,
+      "name": "ArbiterWindowClosed",
+      "msg": "Arbiter window has closed"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidAdmin",
+      "msg": "Admin must not be the default pubkey"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "docs": [
+        "Global settings, PDA `[\"config\"]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "docs": [
+              "The only mint `create_lease` accepts."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Lease",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "landlord",
+            "type": "pubkey"
+          },
+          {
+            "name": "tenant",
+            "type": "pubkey"
+          },
+          {
+            "name": "arbiter",
+            "docs": [
+              "Opt-in arbiter; Pubkey::default() means none."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "lease_id",
+            "docs": [
+              "Part of the PDA seeds, stored so the program can sign for the vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "funded",
+            "type": "u64"
+          },
+          {
+            "name": "lease_end_ts",
+            "type": "i64"
+          },
+          {
+            "name": "claim_window_secs",
+            "type": "i64"
+          },
+          {
+            "name": "response_window_secs",
+            "docs": [
+              "Time the tenant has after a proposal to dispute; after it, anyone can auto_accept."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "arbiter_window_secs",
+            "docs": [
+              "Time the arbiter has after a dispute to rule; after it, anyone can arbiter_timeout."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "terms_hash",
+            "docs": [
+              "SHA-256 of the signed agreement PDF (from SewaCheck)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "LeaseStatus"
+              }
+            }
+          },
+          {
+            "name": "deduction",
+            "type": "u64"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "proposed_ts",
+            "type": "i64"
+          },
+          {
+            "name": "disputed_ts",
+            "docs": [
+              "When the tenant disputed (0 until then); start of the arbiter window."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeaseStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Created"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "DeductionProposed"
+          },
+          {
+            "name": "Disputed"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    }
+  ]
+}
