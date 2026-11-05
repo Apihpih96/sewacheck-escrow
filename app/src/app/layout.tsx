@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Header />
           <main className="main">{children}</main>
           <footer className="footer muted small">
-            Devnet demo · funds are test USDC · the program never holds a company key over deposits
+            Devnet demo · funds are test USDC · deposits sit in a program-owned vault, not a company wallet
           </footer>
         </Providers>
       </body>
