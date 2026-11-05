@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { fetchMyLeases, type LeaseRow } from "@/lib/leases";
 import { formatUsdc } from "@/lib/amount";
 import { formatTs } from "@/lib/time";
 import { mapError } from "@/lib/errors";
-import { parsePubkey, short } from "@/lib/solanaPay";
+import { short } from "@/lib/solanaPay";
+import { OpenByAddress } from "./OpenByAddress";
 
 export function MyLeases() {
   const { connection } = useConnection();
@@ -70,28 +70,5 @@ export function MyLeases() {
       )}
       <OpenByAddress />
     </section>
-  );
-}
-
-function OpenByAddress() {
-  const router = useRouter();
-  const [v, setV] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  return (
-    <form
-      className="inline-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const pk = parsePubkey(v.trim());
-        if (!pk) return setErr("Not a valid lease address.");
-        router.push(`/lease/${pk.toBase58()}`);
-      }}
-    >
-      <input value={v} onChange={(e) => setV(e.target.value)} placeholder="Open a lease by address" aria-label="Lease address" spellCheck={false} />
-      <button className="btn small" type="submit">
-        Open
-      </button>
-      {err && <span className="error small">{err}</span>}
-    </form>
   );
 }

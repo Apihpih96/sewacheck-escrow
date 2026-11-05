@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import type { Lease } from "@/lib/codec";
@@ -17,11 +16,15 @@ import { mapError } from "@/lib/errors";
 import { explorerAddress, explorerTx } from "@/lib/constants";
 import { fundRequestLink, short, transactionRequestUrl } from "@/lib/solanaPay";
 import { buildMutualRelease, encodeMutualFragment, parseMutualFragment, validateMutualRelease } from "@/lib/mutual";
+import { classifyLeaseLoadError, closingSignature, type LeaseLoadProblem } from "@/lib/leaseLoad";
 import { useChainNow } from "./useChainNow";
+import { LeaseProblem } from "./LeaseProblem";
 import { Qr } from "./Qr";
 import { CopyField } from "./CopyField";
 
-type Load = { state: "loading" } | { state: "missing" } | { state: "error"; msg: string } | { state: "ok"; lease: Lease };
+type Load = { state: "loading" } | { state: "missing" } | { state: "error"; problem: LeaseLoadProblem } | { state: "ok"; lease: Lease };
+/** Closing tx lookup for a missing lease: undefined = looking, null = no history / lookup failed. */
+type ClosedTx = { sig: string; blockTime?: number | null } | null | undefined;
 
 export function LeaseView({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
@@ -32,13 +35,15 @@ export function LeaseView({ address }: { address: PublicKey }) {
   const [busy, setBusy] = useState<ActionKind | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string; sig?: string } | null>(null);
   const [lastClosedSig, setLastClosedSig] = useState<string | null>(null);
+  const [closedTx, setClosedTx] = useState<ClosedTx>(undefined);
+  const [historyFailed, setHistoryFailed] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const l = await fetchLease(connection, address);
       setLoad(l ? { state: "ok", lease: l } : { state: "missing" });
     } catch (e) {
-      setLoad({ state: "error", msg: mapError(e).message });
+      setLoad({ state: "error", problem: classifyLeaseLoadError(e) });
     }
   }, [connection, address]);
 
@@ -50,6 +55,29 @@ export function LeaseView({ address }: { address: PublicKey }) {
     const id = setInterval(refresh, 15000);
     return () => clearInterval(id);
   }, [refresh, connection]);
+
+  // A missing account is either a closed lease or an address that never held one. The newest
+  // successful signature on the address is the transaction that closed it.
+  const missing = load.state === "missing";
+  useEffect(() => {
+    if (!missing || lastClosedSig) return;
+    let cancelled = false;
+    connection
+      .getSignaturesForAddress(address, { limit: 10 }, "confirmed")
+      .then((sigs) => {
+        if (cancelled) return;
+        const c = closingSignature(sigs);
+        setClosedTx(c ? { sig: c.signature, blockTime: c.blockTime } : null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHistoryFailed(true);
+        setClosedTx(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [missing, lastClosedSig, connection, address]);
 
   const run = useCallback(
     async (kind: ActionKind, params: Parameters<typeof buildActionIxs>[3] = {}) => {
@@ -73,33 +101,69 @@ export function LeaseView({ address }: { address: PublicKey }) {
   );
 
   if (load.state === "loading") return <section className="card">Loading lease…</section>;
-  if (load.state === "error") return <section className="card error">{load.msg}</section>;
-  if (load.state === "missing")
-    return (
-      <section className="card">
-        <h2>Lease closed or not found</h2>
-        {lastClosedSig ? (
+  if (load.state === "error") {
+    if (load.problem.kind === "foreign")
+      return (
+        <LeaseProblem title="Not a SewaCheck lease">
           <p>
-            The lease was settled and its account closed.{" "}
-            <a href={explorerTx(lastClosedSig)} target="_blank" rel="noreferrer noopener">
-              View the settlement transaction
+            This address exists on Solana devnet, but it isn&apos;t a SewaCheck Escrow lease. It may be a wallet or a
+            token account. Ask the landlord for the lease link, or open the lease from your list.
+          </p>
+        </LeaseProblem>
+      );
+    return (
+      <LeaseProblem
+        title="Couldn't load this lease"
+        tone="error"
+        action={
+          <button className="btn primary" type="button" onClick={() => refresh()}>
+            Try again
+          </button>
+        }
+      >
+        <p>
+          We couldn&apos;t reach Solana devnet, so the lease can&apos;t be shown right now. Nothing has changed on-chain;
+          this page retries every 15 seconds.
+        </p>
+        <p className="small">Details: {load.problem.message}</p>
+      </LeaseProblem>
+    );
+  }
+  if (load.state === "missing") {
+    const sig = lastClosedSig ?? closedTx?.sig ?? null;
+    if (!sig && closedTx === undefined) return <section className="card">Loading lease…</section>;
+    if (sig)
+      return (
+        <LeaseProblem title="Lease closed">
+          <p>
+            This lease was settled or cancelled and its account closed on-chain
+            {closedTx?.blockTime && !lastClosedSig ? <> on {formatTs(closedTx.blockTime)}</> : null}.{" "}
+            <a href={explorerTx(sig)} target="_blank" rel="noreferrer noopener">
+              View the closing transaction
             </a>
             .
           </p>
-        ) : (
+        </LeaseProblem>
+      );
+    return (
+      <LeaseProblem title={historyFailed ? "Lease closed or not found" : "Lease not found"}>
+        {historyFailed ? (
           <p>
-            Settled and cancelled leases are closed on-chain, so they no longer appear here. Check the{" "}
+            There is no open lease at this address. Settled and cancelled leases are closed on-chain; check the{" "}
             <a href={explorerAddress(address.toBase58())} target="_blank" rel="noreferrer noopener">
               address history on Explorer
             </a>
             .
           </p>
+        ) : (
+          <p>
+            Nothing has ever happened at this address on devnet. Check that the link is complete, or open the lease from
+            your list.
+          </p>
         )}
-        <Link className="btn" href="/">
-          Back to my leases
-        </Link>
-      </section>
+      </LeaseProblem>
     );
+  }
 
   const lease = load.lease;
   return (
@@ -332,7 +396,9 @@ function ActionCard(props: DetailsProps & { a: ActionState }) {
             <input value={deduction} onChange={(e) => setDeduction(e.target.value)} inputMode="decimal" />
           </label>
           <label>
-            Evidence file <span className="muted">(hashed on your device, never uploaded)</span>
+            <span>
+              Evidence file <span className="hint">(hashed on your device, never uploaded)</span>
+            </span>
             <input
               type="file"
               onChange={async (e) => {

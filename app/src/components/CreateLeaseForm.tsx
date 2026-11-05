@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { parseDaysToSecs, parseUsdc, formatUsdc } from "@/lib/amount";
 import { localInputToUnix, unixToLocalInput, formatTs } from "@/lib/time";
 import { parsePubkey, fundRequestLink, transactionRequestUrl } from "@/lib/solanaPay";
@@ -27,6 +28,7 @@ interface Created {
 export function CreateLeaseForm() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+  const { setVisible: openWalletModal } = useWalletModal();
   const [tenant, setTenant] = useState("");
   const [amount, setAmount] = useState("");
   const [end, setEnd] = useState(() => unixToLocalInput(Math.floor(Date.now() / 1000) + 365 * 86400));
@@ -50,7 +52,8 @@ export function CreateLeaseForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!publicKey) return setError("Connect the landlord wallet first.");
+    // No wallet yet: open the wallet picker instead of showing an error. The form keeps its values.
+    if (!publicKey) return openWalletModal(true);
     try {
       const tenantPk = parsePubkey(tenant.trim());
       if (!tenantPk) throw new Error("Enter the tenant's Solana wallet address.");
@@ -119,46 +122,57 @@ export function CreateLeaseForm() {
 
   return (
     <form className="card form" onSubmit={submit} noValidate>
-      <h2>Create a lease</h2>
-      <p className="muted">You are the landlord. The tenant locks the deposit in USDC; it is released by the rules below.</p>
+      <div className="form-head">
+        <h2>Create a lease</h2>
+        <p className="muted">You are the landlord. The tenant locks the deposit in USDC; it is released by the rules below.</p>
+      </div>
       <label>
-        Tenant wallet address
+        <span className="label-text">Tenant wallet address</span>
         <input value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="e.g. JCFc…uBvf" autoComplete="off" spellCheck={false} required />
       </label>
       <label>
-        Deposit (USDC)
+        <span className="label-text">Deposit (USDC)</span>
         <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="5400" required />
       </label>
       <label>
-        Lease end <span className="muted">({tz})</span>
+        <span>
+          <span className="label-text">Lease end</span> <span className="hint">({tz})</span>
+        </span>
         <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
       </label>
       <fieldset>
-        <legend>Windows (days; 0 = program default)</legend>
+        <legend>
+          Windows <span className="hint">(days; 0 = default)</span>
+        </legend>
         <div className="grid3">
           <label>
-            Claim
+            <span className="label-text">Claim</span>
             <input value={claimDays} onChange={(e) => setClaimDays(e.target.value)} inputMode="decimal" />
             <small>Landlord can claim after lease end</small>
           </label>
           <label>
-            Response
+            <span className="label-text">Response</span>
             <input value={responseDays} onChange={(e) => setResponseDays(e.target.value)} inputMode="decimal" />
             <small>Tenant can dispute a claim</small>
           </label>
           <label>
-            Arbiter
+            <span className="label-text">Arbiter</span>
             <input value={arbiterDays} onChange={(e) => setArbiterDays(e.target.value)} inputMode="decimal" />
             <small>Arbiter rules on a dispute</small>
           </label>
         </div>
       </fieldset>
       <label>
-        Arbiter wallet <span className="muted">(optional)</span>
+        <span>
+          <span className="label-text">Arbiter wallet</span> <span className="hint">(optional)</span>
+        </span>
         <input value={arbiter} onChange={(e) => setArbiter(e.target.value)} placeholder="Leave empty to use the SewaCheck fallback arbiter" autoComplete="off" spellCheck={false} />
       </label>
       <label>
-        Tenancy agreement <span className="muted">(optional, fingerprinted on your device, never uploaded)</span>
+        <span>
+          <span className="label-text">Tenancy agreement</span>{" "}
+          <span className="hint">(optional; fingerprinted on your device, never uploaded)</span>
+        </span>
         <input type="file" onChange={(e) => onTerms(e.target.files?.[0])} />
         {terms && (
           <small className="mono">

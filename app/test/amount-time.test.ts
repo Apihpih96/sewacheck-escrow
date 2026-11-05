@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { formatUsdc, parseDaysToSecs, parseUsdc } from "../src/lib/amount";
-import { formatDuration, localInputToUnix, unixToLocalInput } from "../src/lib/time";
+import { formatDuration, formatTs, localInputToUnix, unixToLocalInput } from "../src/lib/time";
 
 describe("USDC amounts (6 decimals, no floats)", () => {
   it("parses exactly", () => {
@@ -60,5 +60,13 @@ describe("timezones", () => {
     expect(formatDuration(59)).toBe("59s");
     expect(formatDuration(65)).toBe("1m 05s");
     expect(formatDuration(3 * 86400 + 4 * 3600)).toBe("3d 4h");
+  });
+});
+
+describe("formatTs", () => {
+  it("formats bigint and number seconds with the zone shown (no Intl option error)", () => {
+    expect(formatTs(1_800_000_000n, "Asia/Kuala_Lumpur")).toMatch(/^15 Jan 2027, 16:00 \S+/);
+    expect(formatTs(1_800_000_000, "UTC")).toMatch(/^15 Jan 2027, 08:00 \S+/);
+    expect(() => formatTs(1_800_000_000)).not.toThrow();
   });
 });

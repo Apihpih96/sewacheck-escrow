@@ -3,6 +3,7 @@ import { Connection, PublicKey, type GetProgramAccountsFilter } from "@solana/we
 import { accountDiscriminator, decodeConfig, decodeLease, type Config, type Lease } from "./codec";
 import { LEASE_ACCOUNT_SIZE, LEASE_LANDLORD_OFFSET, LEASE_TENANT_OFFSET, PROGRAM_ID } from "./constants";
 import { configPda } from "./pda";
+import { NotSewaCheckLeaseError } from "./leaseLoad";
 
 export function leaseFilters(role: "landlord" | "tenant", wallet: PublicKey): GetProgramAccountsFilter[] {
   return [
@@ -47,8 +48,13 @@ export async function fetchMyLeases(conn: Connection, wallet: PublicKey): Promis
 export async function fetchLease(conn: Connection, address: PublicKey): Promise<Lease | null> {
   const info = await conn.getAccountInfo(address, "confirmed");
   if (!info) return null;
-  if (!info.owner.equals(PROGRAM_ID)) throw new Error("That address is not a SewaCheck lease.");
-  return decodeLease(info.data);
+  if (!info.owner.equals(PROGRAM_ID)) throw new NotSewaCheckLeaseError();
+  try {
+    return decodeLease(info.data);
+  } catch {
+    // Owned by the program but not a lease (e.g. the Config account).
+    throw new NotSewaCheckLeaseError();
+  }
 }
 
 export async function fetchConfig(conn: Connection): Promise<Config | null> {

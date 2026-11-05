@@ -27,9 +27,14 @@ export function unixToLocalInput(unix: number): string {
 /** Human date in the viewer's timezone with the zone name shown. */
 export function formatTs(unix: bigint | number, timeZone?: string): string {
   const d = new Date(Number(unix) * 1000);
+  // Explicit fields: Intl rejects dateStyle/timeStyle combined with timeZoneName
+  // ("Invalid option"), which used to crash every page that showed a date.
   return d.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
     timeZone,
     timeZoneName: "short",
   });
