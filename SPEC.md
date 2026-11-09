@@ -1,6 +1,6 @@
 # SewaCheck Escrow — Technical Spec (pre-sprint)
 
-Status: design only. Code is written during the Colosseum Eternal 4-week sprint.
+Status: implemented during the Colosseum Eternal sprint (Nov 2026). This spec is the design the code follows; see README.md for current status.
 
 ## 1. Problem
 Malaysian residential deposits (commonly 2 months security + 1 month utility) are held by the landlord with no neutral custody. Disputes at move-out are slow and costly to pursue for small amounts. Tenants have little leverage and landlords have no cheap way to prove legitimate deductions.
