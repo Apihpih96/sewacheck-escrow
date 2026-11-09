@@ -6,7 +6,7 @@ Extends [SewaCheck](https://github.com/Apihpih96/Sewacheck), the Malaysian tenan
 
 **Status:** in active development for Colosseum Eternal (Nov 2026). Built so far: the core escrow (create_lease, fund_deposit, cancel_lease, auto_refund, USDC only), move-out deductions with evidence hashes, tenant disputes, an arbiter with a deadline, mutual release, and a Next.js app with a Solana Pay funding link and QR code. 53 Anchor tests run in CI on solana-test-validator. Week 1 update video: https://youtu.be/U2NvCo5oEXI
 
-## Planned layout
+## Layout
 - `programs/sewacheck_escrow/` — Anchor program (Rust)
 - `tests/` — Anchor TypeScript tests incl. invariant tests
 - `app/` — Next.js app + Solana Pay deposit link
