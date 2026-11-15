@@ -56,7 +56,7 @@ All payouts close the vault and the Lease account, with rent going back to the l
 - Wrong mint / wrong vault / wrong signer → error.
 
 ## 7. Off-chain
-- Evidence (move-out photos, invoices) stored on Arweave/IPFS; only the hash goes on-chain.
+- Evidence (move-out photos, invoices) stays with the parties; only a hash goes on-chain. Since sprint week 3 the hash is of an itemised evidence pack (canonical JSON: lease, items, amounts, per-file SHA-256), which tenant and arbiter verify in the browser. Optional Arweave/IPFS storage later.
 - Next.js app: landlord uploads the agreement → SewaCheck check → hash → create lease → shareable Solana Pay / Blink link for the tenant to fund from a phone.
 - Notifications: email/Telegram when status changes and before the claim window ends.
 
