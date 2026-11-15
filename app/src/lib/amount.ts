@@ -16,6 +16,16 @@ export function parseUsdc(input: string, decimals = USDC_DECIMALS): bigint {
   return v;
 }
 
+/**
+ * Like parseUsdc but also accepts zero ("0", "0.00"), for payouts where nothing to one side is a
+ * valid choice (arbiter ruling, mutual release). Prefilled values come from formatUsdc, which
+ * renders zero as "0.00".
+ */
+export function parseUsdcOrZero(input: string, decimals = USDC_DECIMALS): bigint {
+  if (/^0*(\.0*)?$/.test(input.trim()) && /\d/.test(input)) return 0n;
+  return parseUsdc(input, decimals);
+}
+
 /** Formats base units as a USDC string, trimming trailing zeros but keeping 2 decimals. */
 export function formatUsdc(base: bigint, decimals = USDC_DECIMALS): string {
   const neg = base < 0n;

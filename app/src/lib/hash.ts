@@ -8,6 +8,9 @@ export async function sha256File(file: Blob): Promise<Uint8Array> {
 }
 
 export async function sha256Bytes(data: Uint8Array): Promise<Uint8Array> {
+  // WebCrypto's subtle API only exists in secure contexts (https or localhost). Opening the dev
+  // server via a LAN IP over http would otherwise fail with "cannot read properties of undefined".
+  if (!globalThis.crypto?.subtle) throw new Error("File fingerprinting needs a secure (https) page. Open the app over https or on localhost.");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", data as BufferSource);
   return new Uint8Array(digest);
 }
