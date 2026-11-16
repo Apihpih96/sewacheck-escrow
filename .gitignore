@@ -4,3 +4,6 @@ node_modules/
 test-ledger/
 .env
 *.keypair.json
+# Solana keypairs: never commit (program keypair lives in the PROGRAM_KEYPAIR secret)
+*-keypair.json
+keys/
