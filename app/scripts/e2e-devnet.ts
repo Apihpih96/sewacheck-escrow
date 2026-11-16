@@ -7,7 +7,7 @@
  *
  * Flows:
  *   pay_dispute_resolve  create (named arbiter) -> fund via the app's Solana Pay POST endpoint ->
- *                        propose (evidence hash) -> dispute -> arbiter resolve_dispute (split)
+ *                        propose (itemised evidence pack; verified from chain) -> dispute -> arbiter resolve_dispute (split)
  *   mutual               create -> fund -> landlord signs mutual_release -> link fragment ->
  *                        tenant validates + co-signs + sends
  *   cancel               create -> partial fund -> tenant cancels (partial refund)
@@ -30,6 +30,8 @@ import { fundRequestLink, transactionRequestUrl } from "../src/lib/solanaPay";
 import { sha256Bytes } from "../src/lib/hash";
 import { simulateOrThrow } from "../src/lib/send";
 import type { Lease } from "../src/lib/codec";
+import { toHex } from "../src/lib/codec";
+import { buildPack, checkPack, packFileText, packHash, parsePack } from "../src/lib/evidence";
 
 const WALLET_DIR = process.env.WALLET_DIR;
 if (!WALLET_DIR) throw new Error("Set WALLET_DIR to a folder with landlord.json, tenant.json, keeper.json");
@@ -160,10 +162,23 @@ const flows: Record<string, () => Promise<void>> = {
     check("list my leases (tenant memcmp) finds it", mineT.some((r) => r.address.equals(lease) && r.role === "tenant"));
     await expectRejected("propose before lease end -> LeaseNotEnded", "propose", l, landlord, { deduction: 1n, evidenceHash: new Uint8Array(32).fill(1) }, /LeaseNotEnded/);
     await waitChain(Number(l.leaseEndTs));
-    const evidence = await sha256Bytes(new TextEncoder().encode("move-out photos + cleaning invoice (never uploaded)"));
-    await act("propose", l, landlord, { deduction: 40_000n, evidenceHash: evidence });
+    // Itemised evidence pack (week 3): files hashed locally, only the manifest hash goes on-chain.
+    const fileBody = { photo: "move-out photo: wardrobe door (never uploaded)", invoice: "cleaning invoice (never uploaded)" };
+    const pf = async (name: string, body: string) => ({ name, size: body.length, sha256: toHex(await sha256Bytes(new TextEncoder().encode(body))) });
+    const [photo, invoice] = [await pf("wardrobe.jpg", fileBody.photo), await pf("cleaning-invoice.pdf", fileBody.invoice)];
+    const pack = buildPack(lease.toBase58(), [
+      { label: "Broken wardrobe door", amount: 25_000n, files: [photo] },
+      { label: "End-of-tenancy cleaning", amount: 15_000n, files: [invoice] },
+    ], l.funded);
+    const evidence = await packHash(pack);
+    await act("propose", l, landlord, { deduction: BigInt(pack.total), evidenceHash: evidence });
     l = await mustLease(lease);
-    check("DeductionProposed with evidence hash", l.status === "DeductionProposed" && l.deduction === 40_000n && Buffer.from(l.evidenceHash).equals(Buffer.from(evidence)));
+    check("DeductionProposed with evidence pack hash", l.status === "DeductionProposed" && l.deduction === 40_000n && Buffer.from(l.evidenceHash).equals(Buffer.from(evidence)));
+    const reparsed = parsePack(new TextEncoder().encode(packFileText(pack)))!;
+    const v = checkPack(reparsed, await packHash(reparsed), [photo, invoice], { lease: lease.toBase58(), evidenceHash: l.evidenceHash, deduction: l.deduction });
+    check("evidence pack verifies against the on-chain lease", v.verified);
+    const tampered = checkPack(reparsed, await packHash(reparsed), [await pf("wardrobe.jpg", "edited photo"), invoice], { lease: lease.toBase58(), evidenceHash: l.evidenceHash, deduction: l.deduction });
+    check("a swapped photo is caught", !tampered.verified && tampered.items[0]!.files[0]!.status === "changed");
     await act("dispute", l, tenant);
     l = await mustLease(lease);
     check("Disputed", l.status === "Disputed");

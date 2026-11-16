@@ -8,9 +8,8 @@ import { isZero, toHex } from "@/lib/codec";
 import { fetchConfig, fetchLease } from "@/lib/leases";
 import { ACTION_LABELS, STATUS_TEXT, availableActions, deadlines, effectiveArbiter, roleOf, type ActionState } from "@/lib/actions";
 import { buildActionIxs, type ActionKind } from "@/lib/tx";
-import { formatUsdc, parseUsdc } from "@/lib/amount";
+import { formatUsdc, parseUsdc, parseUsdcOrZero } from "@/lib/amount";
 import { formatDuration, formatTs, windowLabel } from "@/lib/time";
-import { sha256File, MAX_HASH_FILE_BYTES } from "@/lib/hash";
 import { simulateOrThrow, simulateThenSend } from "@/lib/send";
 import { mapError } from "@/lib/errors";
 import { explorerAddress, explorerTx } from "@/lib/constants";
@@ -21,6 +20,8 @@ import { useChainNow } from "./useChainNow";
 import { LeaseProblem } from "./LeaseProblem";
 import { Qr } from "./Qr";
 import { CopyField } from "./CopyField";
+import { EvidencePackBuilder, downloadPack, type BuiltPack } from "./EvidencePackBuilder";
+import { VerifyEvidence } from "./VerifyEvidence";
 
 type Load = { state: "loading" } | { state: "missing" } | { state: "error"; problem: LeaseLoadProblem } | { state: "ok"; lease: Lease };
 /** Closing tx lookup for a missing lease: undefined = looking, null = no history / lookup failed. */
@@ -200,6 +201,8 @@ interface DetailsProps {
   cosign: (tx: Transaction) => Promise<Transaction>;
   setMsg: (m: DetailsProps["msg"]) => void;
   setLastClosedSig: (s: string) => void;
+  /** award amount suggested from the evidence review (arbiter) */
+  award?: { value: string; n: number };
 }
 
 function LeaseDetails(p: DetailsProps) {
@@ -211,6 +214,8 @@ function LeaseDetails(p: DetailsProps) {
   const noArbiter = lease.arbiter.equals(PublicKey.default);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const leaseUrl = `${origin}/lease/${address.toBase58()}`;
+  const [award, setAward] = useState<{ value: string; n: number } | undefined>(undefined);
+  const showVerify = !isZero(lease.termsHash) || !isZero(lease.evidenceHash);
 
   const timeline: { label: string; at: number; note?: string }[] = [
     { label: "Lease ends", at: d.leaseEnd },
@@ -329,11 +334,23 @@ function LeaseDetails(p: DetailsProps) {
         {actions.length === 0 && <p className="muted">No actions available.</p>}
         <div className="actions">
           {actions.map((a) => (
-            <ActionCard key={a.kind} a={a} {...p} />
+            <ActionCard key={a.kind} a={a} {...p} award={award} />
           ))}
         </div>
         <MutualCosign {...p} />
       </section>
+
+      {showVerify && (
+        <VerifyEvidence
+          lease={lease}
+          address={address.toBase58()}
+          canRule={role === "arbiter" && lease.status === "Disputed"}
+          onUseAward={(value) => {
+            setAward((prev) => ({ value, n: (prev?.n ?? 0) + 1 }));
+            document.getElementById("action-resolve")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -341,9 +358,14 @@ function LeaseDetails(p: DetailsProps) {
 function ActionCard(props: DetailsProps & { a: ActionState }) {
   const { a, lease, busy, run, now } = props;
   const [amount, setAmount] = useState(() => formatUsdc(lease.amount - lease.funded).replace(/,/g, ""));
-  const [deduction, setDeduction] = useState("");
   const [toLandlord, setToLandlord] = useState("");
-  const [evidence, setEvidence] = useState<{ name: string; hash: Uint8Array } | null>(null);
+  const [pack, setPack] = useState<BuiltPack | null>(null);
+  const [awardN, setAwardN] = useState(0);
+  if (props.award && props.award.n !== awardN) {
+    // a new suggestion from the evidence review: prefill the ruling
+    setAwardN(props.award.n);
+    setToLandlord(props.award.value);
+  }
   const [err, setErr] = useState<string | null>(null);
   const isBusy = busy === a.kind;
   const label = ACTION_LABELS[a.kind];
@@ -357,11 +379,12 @@ function ActionCard(props: DetailsProps & { a: ActionState }) {
         case "fund":
           return await run("fund", { amount: parseUsdc(amount) });
         case "propose": {
-          if (!evidence) throw new Error("Choose an evidence file (photos, invoice, report).");
-          return await run("propose", { deduction: parseUsdc(deduction), evidenceHash: evidence.hash });
+          if (!pack) throw new Error("Complete the itemised claim: each item needs a description, an amount and a photo or invoice.");
+          downloadPack(pack.pack); // the landlord always keeps the exact manifest that was anchored
+          return await run("propose", { deduction: BigInt(pack.pack.total), evidenceHash: pack.hash });
         }
         case "resolve": {
-          const v = toLandlord.trim() === "0" ? 0n : parseUsdc(toLandlord);
+          const v = parseUsdcOrZero(toLandlord);
           if (v > lease.deduction) throw new Error("The ruling can't exceed the claimed deduction.");
           return await run("resolve", { toLandlord: v });
         }
@@ -378,7 +401,7 @@ function ActionCard(props: DetailsProps & { a: ActionState }) {
   if (a.kind === "mutual_release") return <MutualStart {...props} />;
 
   return (
-    <div className={`action ${a.enabled ? "" : "disabled"}`}>
+    <div className={`action ${a.enabled ? "" : "disabled"}`} id={`action-${a.kind}`}>
       <div className="action-head">
         <strong>{label}</strong>
         <span className="muted small">{a.role === "anyone" ? "anyone" : a.role === "party" ? "landlord or tenant" : a.role}</span>
@@ -390,32 +413,12 @@ function ActionCard(props: DetailsProps & { a: ActionState }) {
         </label>
       )}
       {a.kind === "propose" && a.enabled && (
-        <>
-          <label>
-            Deduction (USDC, max {formatUsdc(lease.funded)})
-            <input value={deduction} onChange={(e) => setDeduction(e.target.value)} inputMode="decimal" />
-          </label>
-          <label>
-            <span>
-              Evidence file <span className="hint">(hashed on your device, never uploaded)</span>
-            </span>
-            <input
-              type="file"
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                setEvidence(null);
-                if (!f) return;
-                if (f.size > MAX_HASH_FILE_BYTES) return setErr("File too large.");
-                setEvidence({ name: f.name, hash: await sha256File(f) });
-              }}
-            />
-            {evidence && <small className="mono">SHA-256 {toHex(evidence.hash).slice(0, 16)}… ({evidence.name})</small>}
-          </label>
-        </>
+        <EvidencePackBuilder lease={props.address.toBase58()} maxTotal={lease.funded} onChange={setPack} />
       )}
       {a.kind === "accept" && a.enabled && (
         <p className="small">
-          Landlord gets {formatUsdc(lease.deduction)} USDC; you get the rest ({formatUsdc(lease.funded - lease.deduction)} USDC).
+          Landlord gets {formatUsdc(lease.deduction)} USDC; you get the rest ({formatUsdc(lease.funded - lease.deduction)} USDC).{" "}
+          <a href="#verify">Verify the evidence first</a>.
         </p>
       )}
       {a.kind === "resolve" && a.enabled && (
@@ -445,7 +448,7 @@ function MutualStart(props: DetailsProps & { a: ActionState }) {
     setErr(null);
     try {
       if (!wallet || !signTransaction) throw new Error("Connect a wallet that can sign.");
-      const v = toLandlord.trim() === "0" ? 0n : parseUsdc(toLandlord);
+      const v = parseUsdcOrZero(toLandlord);
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
       const tx = buildMutualRelease(lease, wallet, v, blockhash, lastValidBlockHeight);
       await simulateOrThrow(connection, tx);

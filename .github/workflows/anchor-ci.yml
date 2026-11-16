@@ -69,14 +69,26 @@ jobs:
 
       - name: Build
         if: steps.check.outputs.has_anchor == 'true'
+        env:
+          PROGRAM_KEYPAIR: ${{ secrets.PROGRAM_KEYPAIR }}
         run: |
           solana-keygen new --no-bip39-passphrase --silent --force
-          # Fixed program ID: use the committed program keypair and fail if it drifts.
           mkdir -p target/deploy
-          cp keys/sewacheck_escrow-keypair.json target/deploy/
-          anchor build
-          want=$(solana address -k target/deploy/sewacheck_escrow-keypair.json)
-          grep -q "declare_id!(\"$want\")" programs/sewacheck_escrow/src/lib.rs || { echo "Program ID mismatch: $want"; exit 1; }
+          kp=target/deploy/sewacheck_escrow-keypair.json
+          if [ -n "$PROGRAM_KEYPAIR" ]; then
+            # Real program ID: keypair comes from a repo secret, never from git.
+            printf '%s' "$PROGRAM_KEYPAIR" > "$kp"
+            anchor build
+            want=$(solana address -k "$kp")
+            grep -q "declare_id!(\"$want\")" programs/sewacheck_escrow/src/lib.rs || { echo "Program ID mismatch: $want"; exit 1; }
+          else
+            # No secret set: build and test under a throwaway program ID.
+            solana-keygen new --no-bip39-passphrase --silent --force -o "$kp"
+            anchor keys sync
+            anchor build
+            want=$(solana address -k "$kp")
+            echo "::notice::PROGRAM_KEYPAIR secret not set; tested with throwaway ID $want"
+          fi
           echo "Program ID: $want"
 
       - name: Test (local validator)

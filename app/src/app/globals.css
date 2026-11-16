@@ -158,3 +158,28 @@ p.muted.small { background: none; padding: 0; }
 .problem h2, .problem p { margin: 0; }
 .problem .row { margin-top: 0.3rem; }
 .problem .inline-form { margin-top: 0.2rem; }
+
+/* Evidence packs (week 3) */
+.pack { display: grid; gap: 0.6rem; }
+.pack-item { display: grid; gap: 0.45rem; border: 1px dashed var(--line); border-radius: 10px; padding: 0.6rem 0.7rem; margin: 0; min-width: 0; }
+.pack-item legend { font-weight: 600; font-size: 0.85rem; padding: 0 0.3rem; color: var(--muted); }
+.pack-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; font-size: 0.85rem; overflow-wrap: anywhere; }
+.pack-summary { display: grid; gap: 0.4rem; background: var(--blue-soft); border-radius: 10px; padding: 0.6rem 0.75rem; }
+.linkish { background: none; border: 0; padding: 0; color: var(--green-dark); text-decoration: underline; cursor: pointer; font-size: 0.8rem; }
+.verify-results { display: grid; gap: 0.6rem; margin-top: 0.75rem; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
+.pack-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.pack-table th, .pack-table td { text-align: left; vertical-align: top; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--line); }
+.pack-table .num { text-align: right; white-space: nowrap; }
+.fs-match { color: var(--green-dark); }
+.fs-changed { color: var(--red); font-weight: 600; }
+.fs-missing { color: var(--amber); }
+.pack-table input[type="checkbox"] { width: 1.1rem; height: 1.1rem; min-height: 0; margin: 0.1rem 0 0; padding: 0; accent-color: var(--green); }
+/* Narrow phones: the 4-column ruling table squeezed file names to one word per line at 375px.
+   Lay each item out as [tick | label | amount] with its files on a full-width line below. */
+@media (max-width: 480px) {
+  .pack-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .pack-table tr { display: grid; grid-template-columns: auto 1fr auto; column-gap: 0.5rem; border-bottom: 1px solid var(--line); padding: 0.45rem 0; }
+  .pack-table td { border-bottom: 0; padding: 0.1rem 0.2rem; }
+  .pack-table td:last-child { grid-column: 1 / -1; padding-left: 1.9rem; }
+}
