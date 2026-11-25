@@ -8,6 +8,12 @@ Extends [SewaCheck](https://github.com/Apihpih96/Sewacheck), the Malaysian tenan
 
 **Live demo (devnet):** https://sewacheck-escrow.vercel.app
 
+**Final pitch video:** https://youtu.be/vXx0sRloTbk
+
+**Demo video:** https://youtu.be/q8cjzbyXSFk
+
+**Program ID (devnet):** `9Uu5DcNxbueKnS2UdYuAQnQCBwHH6QnBo8RtNNQ91mrQ`
+
 ## Evidence packs (sprint week 3)
 At move-out the landlord lists each deduction ("Broken wardrobe door: 350 USDC") and attaches its photos or invoices. Every file is SHA-256 fingerprinted in the browser and never uploaded. The app builds a small canonical JSON manifest (lease address, items, amounts, file names and hashes); the manifest's SHA-256 is the `evidence_hash` sent with `propose_deduction`, and the deduction equals the items' total. The landlord keeps the downloaded `.json` and shares it with the photos.
 
